@@ -126,7 +126,7 @@ Installing 100% |████████████████████| (
 🎉 Installation complete!
 ```
 
-## 📊 Performance Comparison
+## Performance Comparison
 
 Typical installation times compared to PHP Composer:
 
@@ -216,7 +216,7 @@ go-composer require \
   guzzlehttp/guzzle:^7.0
 ```
 
-## 🐛 Known Limitations
+## Known Limitations
 
 - ⚠️ Composer scripts are not executed
 - ⚠️ Composer plugins are not supported
