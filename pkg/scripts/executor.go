@@ -7,19 +7,19 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/aleksandrbelysev/go-composer/pkg/composer"
+	"github.com/xman12/go-composer/pkg/composer"
 )
 
 // Executor выполняет скрипты из composer.json
 type Executor struct {
-	projectRoot string
+	projectRoot  string
 	composerJSON *composer.ComposerJSON
 }
 
 // NewExecutor создает новый executor для скриптов
 func NewExecutor(projectRoot string, composerJSON *composer.ComposerJSON) *Executor {
 	return &Executor{
-		projectRoot: projectRoot,
+		projectRoot:  projectRoot,
 		composerJSON: composerJSON,
 	}
 }
@@ -115,9 +115,9 @@ func (e *Executor) executePHP(args []string) error {
 func (e *Executor) executePHPClassMethod(script string) error {
 	// Формат: ClassName::methodName
 	// Composer передает объект Event в метод, нужно создать mock
-	
+
 	vendorAutoload := filepath.Join(e.projectRoot, "vendor", "autoload.php")
-	
+
 	// Проверяем существование autoload.php
 	if _, err := os.Stat(vendorAutoload); os.IsNotExist(err) {
 		// Autoload еще не создан, пропускаем
@@ -127,10 +127,10 @@ func (e *Executor) executePHPClassMethod(script string) error {
 
 	// Создаем PHP код с полным mock Event класса
 	vendorPath := filepath.Join(e.projectRoot, "vendor")
-	
+
 	phpCode := `
 		require '` + vendorAutoload + `';
-		
+
 		// Создаем namespace и классы Composer, если их нет
 		if (!class_exists('Composer\Script\Event', false)) {
 			eval('
@@ -139,13 +139,13 @@ func (e *Executor) executePHPClassMethod(script string) error {
 						private $composer;
 						private $io;
 						private $name;
-						
+
 						public function __construct($name = "post-autoload-dump", $composer = null, $io = null) {
 							$this->name = $name;
 							$this->composer = $composer;
 							$this->io = $io;
 						}
-						
+
 						public function getComposer() { return $this->composer; }
 						public function getIO() { return $this->io; }
 						public function getName() { return $this->name; }
@@ -154,15 +154,15 @@ func (e *Executor) executePHPClassMethod(script string) error {
 						public function isDevMode() { return false; }
 					}
 				}
-				
+
 				namespace Composer\Config {
 					class Config {
 						private $vendorDir;
-						
+
 						public function __construct($vendorDir) {
 							$this->vendorDir = $vendorDir;
 						}
-						
+
 						public function get($key, $default = null) {
 							if ($key === "vendor-dir") {
 								return $this->vendorDir;
@@ -171,36 +171,36 @@ func (e *Executor) executePHPClassMethod(script string) error {
 						}
 					}
 				}
-				
+
 				namespace Composer {
 					class Composer {
 						private $config;
-						
+
 						public function __construct($vendorDir) {
 							$this->config = new \Composer\Config\Config($vendorDir);
 						}
-						
+
 						public function getConfig() { return $this->config; }
 					}
 				}
 			');
 		}
-		
+
 		$reflection = new ReflectionMethod('` + script + `');
 		$params = $reflection->getParameters();
-		
+
 		// Если метод требует Event, создаем его
 		if (count($params) > 0) {
 			$vendorDir = '` + vendorPath + `';
 			$composer = new \Composer\Composer($vendorDir);
 			$event = new \Composer\Script\Event('post-autoload-dump', $composer, null);
-			
+
 			\` + script + `($event);
 		} else {
 			\` + script + `();
 		}
 	`
-	
+
 	cmd := exec.Command("php", "-r", phpCode)
 	cmd.Dir = e.projectRoot
 	cmd.Stdout = os.Stdout
@@ -255,4 +255,3 @@ const (
 	EventPrePackageUninstall    = "pre-package-uninstall"
 	EventPostPackageUninstall   = "post-package-uninstall"
 )
-

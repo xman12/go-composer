@@ -1,4 +1,4 @@
-module github.com/aleksandrbelysev/go-composer
+module github.com/xman12/go-composer
 
 go 1.21
 

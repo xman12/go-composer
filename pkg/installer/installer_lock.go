@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aleksandrbelysev/go-composer/pkg/composer"
 	"github.com/schollz/progressbar/v3"
+	"github.com/xman12/go-composer/pkg/composer"
 )
 
 // InstallFromLock устанавливает пакеты напрямую из composer.lock без resolve

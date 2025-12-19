@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/aleksandrbelysev/go-composer/pkg/autoload"
-	"github.com/aleksandrbelysev/go-composer/pkg/composer"
-	"github.com/aleksandrbelysev/go-composer/pkg/installer"
 	"github.com/spf13/cobra"
+	"github.com/xman12/go-composer/pkg/autoload"
+	"github.com/xman12/go-composer/pkg/composer"
+	"github.com/xman12/go-composer/pkg/installer"
 )
 
 var updateCmd = &cobra.Command{
 	Use:   "update [packages...]",
 	Short: "Update dependencies to their latest versions",
-	Long: `Updates dependencies to their latest versions according to 
+	Long: `Updates dependencies to their latest versions according to
 composer.json constraints and updates composer.lock file.`,
 	RunE: runUpdate,
 }
@@ -33,7 +33,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	composerJSONPath := "composer.json"
-	composerLockPath := "composer.lock"
+	composerLockPathFile := "composer.lock"
+	composerLockGoPathFile := "go-composer.lock"
+	composerLock := ""
 	vendorDir := "vendor"
 
 	// Проверяем наличие composer.json
@@ -59,9 +61,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if _, err := os.Stat(composerLockGoPathFile); err == nil {
+		composerLock = composerLockGoPathFile
+	} else if _, err := os.Stat(composerLockPathFile); err == nil {
+		composerLock = composerLockPathFile
+	}
+
 	// Сохраняем composer.lock
-	if err := lock.Save(composerLockPath); err != nil {
-		return fmt.Errorf("failed to save composer.lock: %w", err)
+	if err := lock.Save(composerLock); err != nil {
+		return fmt.Errorf("failed to save lock: %w", err)
 	}
 	fmt.Println("✅ composer.lock updated")
 
@@ -77,4 +85,3 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	fmt.Println("🎉 Update complete!")
 	return nil
 }
-

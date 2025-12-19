@@ -5,16 +5,18 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aleksandrbelysev/go-composer/pkg/autoload"
-	"github.com/aleksandrbelysev/go-composer/pkg/composer"
-	"github.com/aleksandrbelysev/go-composer/pkg/installer"
-	"github.com/aleksandrbelysev/go-composer/pkg/scripts"
 	"github.com/spf13/cobra"
+	"github.com/xman12/go-composer/pkg/autoload"
+	"github.com/xman12/go-composer/pkg/composer"
+	"github.com/xman12/go-composer/pkg/installer"
+	"github.com/xman12/go-composer/pkg/scripts"
 )
 
 var (
-	noDev      bool
-	noAutoload bool
+	noDev        bool
+	noAutoload   bool
+	newLock      bool
+	forceNewLock bool
 )
 
 var installCmd = &cobra.Command{
@@ -28,6 +30,8 @@ and installs all dependencies into vendor/ directory.`,
 func init() {
 	installCmd.Flags().BoolVar(&noDev, "no-dev", false, "skip dev dependencies")
 	installCmd.Flags().BoolVar(&noAutoload, "no-autoloader", false, "skip autoloader generation")
+	installCmd.Flags().BoolVar(&newLock, "new-lock", true, "create go-composer.lock file")
+	installCmd.Flags().BoolVar(&forceNewLock, "force-new-lock", false, "force new go-composer.lock file")
 	rootCmd.AddCommand(installCmd)
 }
 
@@ -40,7 +44,9 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	composerJSONPath := "composer.json"
-	composerLockPath := "composer.lock"
+	composerLockPathFile := "composer.lock"
+	composerLockGoPathFile := "go-composer.lock"
+	composerLock := ""
 	vendorDir := "vendor"
 
 	// Проверяем наличие composer.json
@@ -71,11 +77,27 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	var lock *composer.ComposerLock
 
+	if newLock {
+		if _, err := os.Stat(composerLockGoPathFile); err == nil {
+			composerLock = composerLockGoPathFile
+		} else if _, err := os.Stat(composerLockPathFile); err == nil {
+			composerLock = composerLockPathFile
+		}
+	} else {
+		if _, err := os.Stat(composerLockPathFile); err == nil {
+			composerLock = composerLockPathFile
+		}
+	}
+
+	if forceNewLock {
+		composerLock = ""
+	}
+
 	// Проверяем наличие composer.lock
-	if _, err := os.Stat(composerLockPath); err == nil {
+	if composerLock != "" {
 		// Lock файл существует - устанавливаем напрямую из него
 		fmt.Println("📋 Found composer.lock, installing from lock file...")
-		lock, err = composer.LoadComposerLock(composerLockPath)
+		lock, err = composer.LoadComposerLock(composerLock)
 		if err != nil {
 			return fmt.Errorf("failed to load composer.lock: %w", err)
 		}
@@ -85,18 +107,30 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to install packages: %w", err)
 		}
 	} else {
-		// Lock файла нет - делаем resolve и устанавливаем
+		// Lock файла нет - делаем resolve и устанавливаем, но устанавливаем в go-composer.lock
+		// так как в данный момент файлы не имеют совместимость и чтобы не ломать совместимость
+		// делаем так
 		fmt.Println("📋 No lock file found, resolving dependencies...")
 		lock, err = inst.Install(composerJSON, !noDev)
 		if err != nil {
 			return err
 		}
 
-		// Сохраняем composer.lock
-		if err := lock.Save(composerLockPath); err != nil {
-			return fmt.Errorf("failed to save composer.lock: %w", err)
+		if forceNewLock {
+			composerLock = composerLockGoPathFile
+		} else {
+			composerLock = composerLockPathFile
 		}
-		fmt.Println("✅ composer.lock created")
+
+		if newLock {
+			composerLock = composerLockGoPathFile
+		}
+
+		// Сохраняем lock
+		if err := lock.Save(composerLock); err != nil {
+			return fmt.Errorf("failed to save .lock: %w", err)
+		}
+		fmt.Println("✅ .lock created")
 	}
 
 	// Генерируем autoload

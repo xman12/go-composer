@@ -19,7 +19,10 @@ var rootCmd = &cobra.Command{
 written in Go for speed and efficiency.
 
 It reads composer.json, resolves dependencies from Packagist,
-and installs packages into the vendor/ directory.`,
+and installs packages into the vendor/ directory.
+
+Original source: https://github.com/xman12/go-composer
+Copyright (c) 2025 Aleksandr Belyshev`,
 	Version: "1.0.0",
 }
 

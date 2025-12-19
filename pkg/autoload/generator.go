@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/aleksandrbelysev/go-composer/pkg/composer"
+	"github.com/xman12/go-composer/pkg/composer"
 )
 
 // Generator генерирует autoload файлы

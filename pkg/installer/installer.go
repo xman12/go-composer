@@ -12,10 +12,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aleksandrbelysev/go-composer/pkg/composer"
-	"github.com/aleksandrbelysev/go-composer/pkg/packagist"
-	"github.com/aleksandrbelysev/go-composer/pkg/resolver"
 	"github.com/schollz/progressbar/v3"
+	"github.com/xman12/go-composer/pkg/composer"
+	"github.com/xman12/go-composer/pkg/packagist"
+	"github.com/xman12/go-composer/pkg/resolver"
 )
 
 // Installer управляет установкой пакетов
@@ -39,28 +39,62 @@ func NewInstaller(vendorDir string) *Installer {
 func (i *Installer) Install(composerJSON *composer.ComposerJSON, dev bool) (*composer.ComposerLock, error) {
 	fmt.Println("📦 Resolving dependencies...")
 
-	// Объединяем обычные и dev зависимости
-	requirements := make(map[string]string)
-	for name, version := range composerJSON.Require {
-		requirements[name] = version
-	}
-	if dev {
-		for name, version := range composerJSON.RequireDev {
-			requirements[name] = version
-		}
-	}
-
-	// Разрешаем зависимости
-	packages, err := i.resolver.Resolve(requirements)
+	// Сначала разрешаем основные зависимости
+	mainPackages, err := i.resolver.Resolve(composerJSON.Require)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve dependencies: %w", err)
 	}
 
-	fmt.Printf("✅ Resolved %d packages\n\n", len(packages))
+	// Сохраняем имена основных пакетов для разделения
+	mainPackageNames := make(map[string]bool)
+	for name := range mainPackages {
+		mainPackageNames[name] = true
+	}
+
+	// Затем разрешаем dev зависимости (если нужно)
+	var devPackages map[string]*resolver.Package
+	if dev && len(composerJSON.RequireDev) > 0 {
+		// Создаем новый resolver для dev зависимостей
+		devResolver := resolver.NewResolver(i.client)
+
+		// Объединяем все требования (основные + dev)
+		allRequirements := make(map[string]string)
+		for name, version := range composerJSON.Require {
+			allRequirements[name] = version
+		}
+		for name, version := range composerJSON.RequireDev {
+			allRequirements[name] = version
+		}
+
+		allPackages, err := devResolver.Resolve(allRequirements)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve dev dependencies: %w", err)
+		}
+
+		// Выделяем только dev пакеты (которых нет в основных)
+		devPackages = make(map[string]*resolver.Package)
+		for name, pkg := range allPackages {
+			if !mainPackageNames[name] {
+				devPackages[name] = pkg
+			}
+		}
+	}
+
+	totalPackages := len(mainPackages) + len(devPackages)
+	fmt.Printf("✅ Resolved %d packages (%d main + %d dev)\n\n", totalPackages, len(mainPackages), len(devPackages))
 
 	// Создаем vendor директорию
 	if err := os.MkdirAll(i.vendorDir, 0755); err != nil {
 		return nil, err
+	}
+
+	// Объединяем все пакеты для установки
+	allPackages := make(map[string]*resolver.Package)
+	for name, pkg := range mainPackages {
+		allPackages[name] = pkg
+	}
+	for name, pkg := range devPackages {
+		allPackages[name] = pkg
 	}
 
 	// Устанавливаем пакеты параллельно
@@ -68,28 +102,42 @@ func (i *Installer) Install(composerJSON *composer.ComposerJSON, dev bool) (*com
 	fmt.Println()
 
 	// Выводим список пакетов, которые будем устанавливать
-	for _, pkg := range packages {
+	for _, pkg := range allPackages {
 		version := pkg.Version
-		if pkg.Info.Dist != nil && pkg.Info.Dist.Reference != "" && pkg.Info.Dist.Reference != pkg.Version {
-			ref := pkg.Info.Dist.Reference
+		if pkg.Info.Dist.Dist != nil && pkg.Info.Dist.Dist.Reference != "" && pkg.Info.Dist.Dist.Reference != pkg.Version {
+			ref := pkg.Info.Dist.Dist.Reference
 			if len(ref) > 8 {
 				ref = ref[:8]
 			}
 			version = fmt.Sprintf("%s (%s)", pkg.Version, ref)
 		}
-		fmt.Printf("  📦 %-40s %s\n", pkg.Name, version)
+		devMarker := ""
+		if devPackages != nil {
+			if _, isDev := devPackages[pkg.Name]; isDev {
+				devMarker = " [dev]"
+			}
+		}
+		fmt.Printf("  📦 %-40s %s%s\n", pkg.Name, version, devMarker)
 	}
 	fmt.Println()
 
 	var wg sync.WaitGroup
-	errors := make(chan error, len(packages))
-	lockedPackages := make(chan *composer.LockedPackage, len(packages))
+	errors := make(chan error, len(allPackages))
+	type lockedResult struct {
+		pkg   *composer.LockedPackage
+		isDev bool
+	}
+	lockedPackages := make(chan lockedResult, len(allPackages))
 
-	bar := progressbar.Default(int64(len(packages)), "Installing")
+	bar := progressbar.Default(int64(len(allPackages)), "Installing")
 
-	for _, pkg := range packages {
+	for _, pkg := range allPackages {
 		wg.Add(1)
-		go func(pkg *resolver.Package) {
+		isDev := false
+		if devPackages != nil {
+			_, isDev = devPackages[pkg.Name]
+		}
+		go func(pkg *resolver.Package, isDev bool) {
 			defer wg.Done()
 			defer bar.Add(1)
 
@@ -98,8 +146,8 @@ func (i *Installer) Install(composerJSON *composer.ComposerJSON, dev bool) (*com
 				errors <- fmt.Errorf("failed to install %s: %w", pkg.Name, err)
 				return
 			}
-			lockedPackages <- locked
-		}(pkg)
+			lockedPackages <- lockedResult{pkg: locked, isDev: isDev}
+		}(pkg, isDev)
 	}
 
 	wg.Wait()
@@ -112,16 +160,22 @@ func (i *Installer) Install(composerJSON *composer.ComposerJSON, dev bool) (*com
 		return nil, <-errors
 	}
 
-	// Собираем locked пакеты
-	var locked []composer.LockedPackage
-	for pkg := range lockedPackages {
-		locked = append(locked, *pkg)
+	// Собираем locked пакеты с разделением на main и dev
+	var lockedMain []composer.LockedPackage
+	var lockedDev []composer.LockedPackage
+	for result := range lockedPackages {
+		if result.isDev {
+			lockedDev = append(lockedDev, *result.pkg)
+		} else {
+			lockedMain = append(lockedMain, *result.pkg)
+		}
 	}
 
 	// Создаем composer.lock
 	contentHash := i.calculateContentHash(composerJSON)
 	lock := composer.NewComposerLock(contentHash)
-	lock.Packages = locked
+	lock.Packages = lockedMain
+	lock.PackagesDev = lockedDev
 
 	fmt.Println("\n✅ All packages installed successfully!")
 
@@ -131,21 +185,21 @@ func (i *Installer) Install(composerJSON *composer.ComposerJSON, dev bool) (*com
 // installPackage устанавливает один пакет
 func (i *Installer) installPackage(pkg *resolver.Package) (*composer.LockedPackage, error) {
 	// Проверяем, есть ли dist
-	if pkg.Info.Dist == nil || pkg.Info.Dist.URL == "" {
+	if pkg.Info.Dist.Dist == nil || pkg.Info.Dist.Dist.URL == "" {
 		return nil, fmt.Errorf("no distribution URL for package %s", pkg.Name)
 	}
 
 	// Загружаем пакет
-	data, err := i.client.DownloadPackage(pkg.Info.Dist.URL)
+	data, err := i.client.DownloadPackage(pkg.Info.Dist.Dist.URL)
 	if err != nil {
 		return nil, err
 	}
 
 	// Проверяем shasum если есть
-	if pkg.Info.Dist.Shasum != "" {
+	if pkg.Info.Dist.Dist.Shasum != "" {
 		hash := sha256.Sum256(data)
 		actualSum := hex.EncodeToString(hash[:])
-		if actualSum != pkg.Info.Dist.Shasum {
+		if actualSum != pkg.Info.Dist.Dist.Shasum {
 			return nil, fmt.Errorf("shasum mismatch for %s", pkg.Name)
 		}
 	}
@@ -256,15 +310,15 @@ func convertSource(src *packagist.Source) *composer.Source {
 	}
 }
 
-func convertDist(dist *packagist.Dist) *composer.Dist {
-	if dist == nil {
+func convertDist(flexDist packagist.FlexibleDist) *composer.Dist {
+	if flexDist.Dist == nil {
 		return nil
 	}
 	return &composer.Dist{
-		Type:      dist.Type,
-		URL:       dist.URL,
-		Reference: dist.Reference,
-		Shasum:    dist.Shasum,
+		Type:      flexDist.Dist.Type,
+		URL:       flexDist.Dist.URL,
+		Reference: flexDist.Dist.Reference,
+		Shasum:    flexDist.Dist.Shasum,
 	}
 }
 

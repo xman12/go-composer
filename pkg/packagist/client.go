@@ -56,6 +56,37 @@ func (f *FundingInfo) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// FlexibleMap представляет гибкий тип для map[string]string или string/array
+type FlexibleMap map[string]string
+
+// UnmarshalJSON позволяет парсить как map, string или array
+func (f *FlexibleMap) UnmarshalJSON(data []byte) error {
+	// Пытаемся распарсить как map
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err == nil {
+		*f = m
+		return nil
+	}
+	
+	// Пытаемся как строку - игнорируем
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*f = make(FlexibleMap)
+		return nil
+	}
+	
+	// Пытаемся как array - игнорируем
+	var arr []interface{}
+	if err := json.Unmarshal(data, &arr); err == nil {
+		*f = make(FlexibleMap)
+		return nil
+	}
+	
+	// Если ничего не подошло - возвращаем пустой map
+	*f = make(FlexibleMap)
+	return nil
+}
+
 const (
 	DefaultPackagistURL = "https://repo.packagist.org"
 )
@@ -93,9 +124,10 @@ type PackageVersion struct {
 	License           []string          `json:"license,omitempty"`
 	Authors           []Author          `json:"authors,omitempty"`
 	Source            *Source           `json:"source,omitempty"`
-	Dist              *Dist             `json:"dist,omitempty"`
+	Dist              FlexibleDist      `json:"dist,omitempty"`
 	Require           Requirements      `json:"require,omitempty"`
 	RequireDev        Requirements      `json:"require-dev,omitempty"`
+	Replace           FlexibleMap       `json:"replace,omitempty"`
 	Autoload          AutoloadConfig    `json:"autoload,omitempty"`
 	Time              string            `json:"time,omitempty"`
 	Support           map[string]string `json:"support,omitempty"`
@@ -117,12 +149,38 @@ type Source struct {
 	Reference string `json:"reference"`
 }
 
-// Dist представляет дистрибутив пакета
+// Dist представляет дистрибутив пакета (гибкий тип)
 type Dist struct {
 	Type      string `json:"type"`
 	URL       string `json:"url"`
 	Reference string `json:"reference,omitempty"`
 	Shasum    string `json:"shasum,omitempty"`
+}
+
+// FlexibleDist - обертка для Dist, которая может быть объектом или строкой
+type FlexibleDist struct {
+	*Dist
+}
+
+// UnmarshalJSON позволяет парсить dist как объект, строку или null
+func (f *FlexibleDist) UnmarshalJSON(data []byte) error {
+	// Пытаемся распарсить как объект
+	var d Dist
+	if err := json.Unmarshal(data, &d); err == nil {
+		f.Dist = &d
+		return nil
+	}
+	
+	// Пытаемся как строку - игнорируем
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		f.Dist = nil
+		return nil
+	}
+	
+	// Если null или другой тип - тоже игнорируем
+	f.Dist = nil
+	return nil
 }
 
 // GetPackage получает информацию о пакете

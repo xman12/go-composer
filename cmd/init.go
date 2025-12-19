@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/aleksandrbelysev/go-composer/pkg/composer"
 	"github.com/spf13/cobra"
+	"github.com/xman12/go-composer/pkg/composer"
 )
 
 var initCmd = &cobra.Command{
@@ -89,4 +89,3 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Println("✅ composer.json created successfully!")
 	return nil
 }
-

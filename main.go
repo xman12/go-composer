@@ -1,10 +1,9 @@
 package main
 
 import (
-	"github.com/aleksandrbelysev/go-composer/cmd"
+	"github.com/xman12/go-composer/cmd"
 )
 
 func main() {
 	cmd.Execute()
 }
-

@@ -13,7 +13,7 @@ go-composer
 
 # Dependency directories
 vendor/
-examples/
+#examples/
 
 # Go workspace file
 go.work
