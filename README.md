@@ -238,9 +238,6 @@ go build -o go-composer .
 # Production build with optimizations
 make build
 
-# Run tests
-go test ./...
-
 # Install globally
 sudo make install
 ```
